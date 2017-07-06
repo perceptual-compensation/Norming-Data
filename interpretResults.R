@@ -32,12 +32,12 @@ Item.tbl <- data.table(results)[,.(NegAns=mean(NegAns),
                                    NeutAns=mean(NeutAns),
                                    PosAns=mean(PosAns),
                                    Count=.N),
-                                by=.(ItemNumber,Expected)]
+                                by=.(ItemNumber,Expected)][order(ItemNumber)]
 Subj.tbl <- data.table(results)[,.(NegAns=mean(NegAns),
                                    NeutAns=mean(NeutAns),
                                    PosAns=mean(PosAns),
                                    Count=.N),
-                                by=Subject]
+                                by=Subject][order(Subject)]
 Neutral.tbl <- subset(Item.tbl, NeutAns > PosAns + NegAns)
 
 #Plot the by-item results as a stacked barplot.
@@ -63,24 +63,31 @@ logModel.neg <- glm(NegAns~ItemNumber+Subject, data=results, family=binomial(lin
 logModel.pos <- glm(PosAns~ItemNumber+Subject, data=results, family=binomial(link="probit"))
 n <- coef(summary(logModel.neg))[substr(rownames(coef(summary(logModel.neg))),1,1) %in% c("I","("),1]
 p <- coef(summary(logModel.pos))[substr(rownames(coef(summary(logModel.pos))),1,1) %in% c("I","("),1]
-n <- rep(n[1], length(n)) + c(0, n[-1])
-p <- rep(p[1], length(p)) + c(0, p[-1])
-plot(n, p, col=c("red","black")[1+(Item.tbl[order(Item.tbl$ItemNumber)]$Expected!="Neutral")])
+n <- n + c(0, rep(n[1], length(n)-1))
+p <- p + c(0, rep(p[1], length(p)-1))
+plot(n, p, col=c("red","black")[1+(Item.tbl$Expected!="Neutral")])
 abline(h=0,v=0)
 
 #Just the item factor estimates, for graphing purposes
 est.neg <- coef(summary(glm(NegAns~ItemNumber, data=results, family=binomial(link="probit"))))[,1]
 est.pos <- coef(summary(glm(PosAns~ItemNumber, data=results, family=binomial(link="probit"))))[,1]
-est.neg <- rep(est.neg[1], length(est.neg)) + c(0,est.neg[-1])
-est.pos <- rep(est.pos[1], length(est.pos)) + c(0,est.pos[-1])
-plot(est.neg, est.pos, col=c("red","black")[1+(Item.tbl[order(Item.tbl$ItemNumber)]$Expected!="Neutral")])
+est.neg <- est.neg + c(0, rep(est.neg[1], length(est.neg)-1))
+est.pos <- est.pos + c(0, rep(est.pos[1], length(est.pos)-1))
+Item.tbl$Estimate.neg <- est.neg
+Item.tbl$Estimate.pos <- est.pos
+plot(est.neg, est.pos, col=c("red","black")[1+(Item.tbl$Expected!="Neutral")])
 abline(h=0,v=0)
 
 #Ordinal representation
 model.ord <- lm(OrdinalAns~ItemNumber+Subject,data=results)
 o <- coef(summary(model.ord))[substr(rownames(coef(summary(model.ord))),1,1) %in% c("I","("),1]
-o <- rep(o[1], length(o)) + c(0, o[-1])
-plot(o,col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl[order(Item.tbl$ItemNumber)]$Expected)],pch=19)
+o <- o + c(0, rep(o[1], length(o)-1))
+Item.tbl$Estimate.lm <- o
+Neut28.log <- Item.tbl[order(Item.tbl$Estimate.neg*Item.tbl$Estimate.pos,decreasing = T)[1:28],]
+Neut28.ord <- Item.tbl[order(abs(Item.tbl$Estimate.lm),decreasing = F)[1:28],]
+plot(o,col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
+points(Neut28.log$ItemNumber,Neut28.log$Estimate.lm,pch="O")
+abline(h=c(min(Neut28.ord$Estimate.lm),max(Neut28.ord$Estimate.lm)),lty=3)
 
 #Multinomial logistic model with subject and item factors
 multinom(Answer~Expected+Subject, data=results)
