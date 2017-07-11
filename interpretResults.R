@@ -2,6 +2,7 @@ library(data.table) #for summary tables
 library(vcd) #for stats on contingency table
 library(irr) #for Fleiss' kappa
 library(ordinal) #for cumulative link mixed model
+library(polycor)
 
 results <- read.csv("~/GitHub/Norming-Data/results.csv", header = FALSE, sep = ",")
 colnames(results) <- c("ID", "IP", "SentenceType", "ItemNumber", "ElementNumber", "SentType", "SentGroup", "Question", "Answer", "Correct", "Time")
@@ -16,9 +17,11 @@ results <- results[,c("IP", "Subject", "ItemNumber", "SentType", "Answer")]
 #Organize sentence categories and answers into neat, matching factors
 results$Answer <- factor(results$Answer, levels=c("Negative","Neutral","Positive"), ordered = TRUE)
 results$ItemNumber <- droplevels(results$ItemNumber)
-results$Expected <- as.factor(c("neg"="Negative", 
-                                "neu"="Neutral", 
-                                "pos"="Positive")[substr(results$SentType,1,3)])
+results$Expected <- factor(c("neg"="Negative", 
+                             "neu"="Neutral", 
+                             "pos"="Positive")[substr(results$SentType,1,3)], 
+                           levels=c("Negative","Neutral","Positive"), 
+                           ordered = TRUE)
 
 #Create these columns to "cast" each answer into its own respective column.
 results$NegAns <- ifelse(results$Answer == "Negative", 1 ,0)
@@ -95,10 +98,27 @@ model.ord <- clmm2(Answer~ItemNumber,random=Subject,data=results,link="probit",t
 o <- c(0, coef(summary(model.ord))[-c(1,2),1])
 Item.tbl$Est.ord <- o
 thresholds <- coef(summary(model.ord))[c(1,2),1]
-Neut28.ord <- Item.tbl[order(abs(Item.tbl$Est.ord-mean(thresholds))[1:28],decreasing = F),]
-Item.tbl$OrdAns <- as.factor(ifelse(Item.tbl$Est.ord < thresholds[1], "Negative", ifelse(Item.tbl$Est.ord > thresholds[2], "Positive", "Neutral")))
+Neut28.ord <- Item.tbl[order(abs(Item.tbl$Est.ord-mean(thresholds)),decreasing = F)[1:28],]
+Item.tbl$OrdAns <- factor(ifelse(Item.tbl$Est.ord < thresholds[1], "Negative", ifelse(Item.tbl$Est.ord > thresholds[2], "Positive", "Neutral")),
+                          levels=c("Negative","Neutral","Positive"), 
+                          ordered = TRUE)
+results$Est.ord <- Item.tbl$Est.ord[match(results$ItemNumber,Item.tbl$ItemNumber)]
+results$OrdAns <- Item.tbl$OrdAns[match(results$ItemNumber,Item.tbl$ItemNumber)]
 plot(o,col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
+points(Neut28.ord$ItemNumber,Neut28.ord$Est.ord,pch="O")
 abline(h=thresholds)
+
+#Measures of inter-rater agreement, via polychoric correlation
+polyserial(results$Est.ord, results$Answer, ML = TRUE)
+polychor(results$OrdAns, results$Answer, ML = TRUE)
+pc <- sapply(levels(results$Subject), 
+             function(x)polychor(results$OrdAns[results$Subject==x], 
+                                 results$Answer[results$Subject==x], 
+                                 ML=TRUE))
+ps <- sapply(levels(results$Subject), 
+             function(x)polyserial(results$Est.ord[results$Subject==x], 
+                                   results$Answer[results$Subject==x], 
+                                   ML=FALSE))
 
 #Compare separate logistic models with the ordinal model
 plot(est.neg, est.pos, col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$OrdAns)],pch=19)
