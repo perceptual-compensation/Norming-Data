@@ -1,10 +1,9 @@
 library(data.table) #for summary tables
 library(vcd) #for stats on contingency table
-library(irr) #for Fleiss' kappa
 library(ordinal) #for cumulative link mixed model
-library(polycor)
+library(polycor) #for ordinal correlation
 
-results <- read.csv("~/GitHub/Norming-Data/results.csv", header = FALSE, sep = ",")
+results <- read.csv("https://raw.githubusercontent.com/perceptual-compensation/Norming-Data/master/results.csv", header = FALSE, sep = ",")
 colnames(results) <- c("ID", "IP", "SentenceType", "ItemNumber", "ElementNumber", "SentType", "SentGroup", "Question", "Answer", "Correct", "Time")
 
 #Remove unwanted columns and rows, transform subject and item number columns
@@ -52,44 +51,25 @@ contingency <- table(results$Expected, results$Answer, dnn=c("Expected", "Observ
 contingency
 mosaic(contingency, shade=TRUE, legend=TRUE)
 assocstats(contingency)
-fleissKappaTable <- table(results$ItemNumber, results$Subject)
-m <- matrix(mapply(function(x,y){ifelse(fleissKappaTable[x,y],as.character(results$Answer)[results$ItemNumber==levels(results$ItemNumber)[x]&results$Subject==levels(results$Subject)[y]],NA)},
-                   row(fleissKappaTable),
-                   col(fleissKappaTable)),
-            nrow=length(levels(results$ItemNumber)))
-rownames(m) <- levels(results$ItemNumber)
-colnames(m) <- levels(results$Subject)
-kappam.fleiss(m)
-
-#Separate logistic models for positive and negative answers, with subject and item factors
-logModel.neg <- glm(NegAns~ItemNumber+Subject, data=results, family=binomial(link="probit"))
-logModel.pos <- glm(PosAns~ItemNumber+Subject, data=results, family=binomial(link="probit"))
-n <- coef(summary(logModel.neg))[substr(rownames(coef(summary(logModel.neg))),1,1) %in% c("I","("),1]
-p <- coef(summary(logModel.pos))[substr(rownames(coef(summary(logModel.pos))),1,1) %in% c("I","("),1]
-n <- n + c(0, rep(n[1], length(n)-1))
-p <- p + c(0, rep(p[1], length(p)-1))
-plot(n, p, c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
-abline(h=0,v=0)
 
 #As above, but with just the item factor estimates.  Seems to come out more sensibly.
-est.neg <- coef(summary(glm(NegAns~ItemNumber, data=results, family=binomial(link="probit"))))[,1]
-est.pos <- coef(summary(glm(PosAns~ItemNumber, data=results, family=binomial(link="probit"))))[,1]
-est.neg <- est.neg + c(0, rep(est.neg[1], length(est.neg)-1))
-est.pos <- est.pos + c(0, rep(est.pos[1], length(est.pos)-1))
-Item.tbl$Est.neg <- est.neg
-Item.tbl$Est.pos <- est.pos
-plot(est.neg, est.pos, col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
+model.neg <- glm(NegAns~ItemNumber, data=results, family=binomial(link="probit"))
+model.pos <- glm(PosAns~ItemNumber, data=results, family=binomial(link="probit"))
+est.neg <- coef(summary(model.neg))[,1]
+est.pos <- coef(summary(model.pos))[,1]
+Item.tbl$Est.neg <- est.neg + c(0, rep(est.neg[1], length(est.neg)-1))
+Item.tbl$Est.pos <- est.pos + c(0, rep(est.pos[1], length(est.pos)-1))
+plot(Item.tbl$Est.neg, Item.tbl$Est.pos, col=c("blue","black","red")[Item.tbl$Expected], pch=19)
 abline(h=0,v=0)
 
 #Numeric representation, plus graph of the kinda-positions of the 28 most neutral sentences
 model.num <- lm(NumericAns~ItemNumber+Subject,data=results)
 o <- coef(summary(model.num))[substr(rownames(coef(summary(model.num))),1,1) %in% c("I","("),1]
-o <- o + c(0, rep(o[1], length(o)-1))
-Item.tbl$Est.lm <- o
+Item.tbl$Est.lm <- o + c(0, rep(o[1], length(o)-1))
 logOrder <- mapply(function(x,y)max(x,y),Item.tbl$Est.neg,Item.tbl$Est.pos)
 Neut28.log <- Item.tbl[order(logOrder,decreasing = F)[1:28],]
 Neut28.num <- Item.tbl[order(abs(Item.tbl$Est.lm),decreasing = F)[1:28],]
-plot(o,col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
+plot(Item.tbl$Est.lm, col=c("blue","black","red")[Item.tbl$Expected], pch=19)
 points(Neut28.log$ItemNumber,Neut28.log$Est.lm,pch="O")
 abline(h=c(min(Neut28.num$Est.lm),max(Neut28.num$Est.lm)),lty=3)
 
@@ -99,12 +79,13 @@ o <- c(0, coef(summary(model.ord))[-c(1,2),1])
 Item.tbl$Est.ord <- o
 thresholds <- coef(summary(model.ord))[c(1,2),1]
 Neut28.ord <- Item.tbl[order(abs(Item.tbl$Est.ord-mean(thresholds)),decreasing = F)[1:28],]
-Item.tbl$OrdAns <- factor(ifelse(Item.tbl$Est.ord < thresholds[1], "Negative", ifelse(Item.tbl$Est.ord > thresholds[2], "Positive", "Neutral")),
+Item.tbl$OrdAns <- factor(ifelse(Item.tbl$Est.ord < thresholds[1], "Negative", 
+                                 ifelse(Item.tbl$Est.ord > thresholds[2], "Positive", "Neutral")),
                           levels=c("Negative","Neutral","Positive"), 
                           ordered = TRUE)
 results$Est.ord <- Item.tbl$Est.ord[match(results$ItemNumber,Item.tbl$ItemNumber)]
 results$OrdAns <- Item.tbl$OrdAns[match(results$ItemNumber,Item.tbl$ItemNumber)]
-plot(o,col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$Expected)],pch=19)
+plot(Item.tbl$Est.ord, col=c("blue","black","red")[Item.tbl$Expected],pch=19)
 points(Neut28.ord$ItemNumber,Neut28.ord$Est.ord,pch="O")
 abline(h=thresholds)
 
@@ -121,6 +102,6 @@ ps <- sapply(levels(results$Subject),
                                    ML=FALSE))
 
 #Compare separate logistic models with the ordinal model
-plot(est.neg, est.pos, col=c(Neutral="black",Positive="red",Negative="blue")[as.character(Item.tbl$OrdAns)],pch=19)
+plot(Item.tbl$Est.neg, Item.tbl$Est.pos, col=c("blue","black","red")[Item.tbl$OrdAns], pch=19)
 abline(h=0,v=0)
 
